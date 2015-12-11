@@ -12,8 +12,6 @@ __global__ void histandcompval(unsigned char* compimages, int* compvals, int num
     int bx = blockIdx.x;
     int by = blockIdx.y; //4 blocks of 256 threads
 
-    quadrant_x = tx % width;
-    quadrant_y = tx / width;
     quadrant_offset = 0;
     if(bx == 1){ quadrant_offset += width; }
     if(by == 1){ quadrant_offset += (size << 1); }
@@ -28,7 +26,8 @@ __global__ void histandcompval(unsigned char* compimages, int* compvals, int num
     int start = (j << 2) * size + quadrant_offset;
     
     for(int i = 0; i * 256 < size; i++){
-        int index = tx + i * 256;
+        quadrant_x = (tx + i * 256) % width;
+        quadrant_y = (tx + i * 256) / width;
         if(quadrant_y < height){
             atomicAdd(&(privhistr[compimages[start + (quadrant_x + quadrant_y * width) * 3]]), 1);
             atomicAdd(&(privhistg[compimages[start + (quadrant_x + quadrant_y * width) * 3 + 1]), 1);
