@@ -81,7 +81,7 @@ __global__ void histandcompval(unsigned char* imagearray, int* compvals, int com
     int half_compheight = COMP_HEIGHT >> 1;
     int half_compwidth = COMP_WIDTH >> 1;
     int comp_quadrantsize = half_compheight * half_compwidth;
-    histandcompval<<<4,256>>>(dev_compimagearray, dev_compvals, 0, numcompimages, comp_quadrantsize, half_compheight, half_compwidth, 0)
+    histandcompval<<<4,256>>>(dev_compimagearray, dev_compcompvals, 0, numcompimages, comp_quadrantsize, half_compheight, half_compwidth, 0)
     //eventually free devcompvals
 
     /*kernel call for full image evaluation */
