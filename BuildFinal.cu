@@ -33,6 +33,7 @@ __global__ void BuildFinalImg(int* closestFit, int* sections, int* finalImage, i
 			}
 			yIndex += gridDim.y;
 		}
+		yIndex = ty + by*blockDim.y;
 		xIndex += gridDim.x;
 	}
 }
