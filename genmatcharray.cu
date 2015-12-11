@@ -2,9 +2,9 @@
 #include <stdlib.h>
 #include <cuda_runtime.h>
 
-__global__ void genclosestarray(float* compcompvals, float* sectcompvals, int* closestfit, int numcompimages, int numsections, int numblocks)
+__global__ void genclosestarray(int* compcompvals, int* sectcompvals, int* closestfit, int numcompimages, int numsections)
 {
-    __shared__ float distances[numcompimages];
+    __shared__ int distances[numcompimages];
 
     int tx = threadIdx.x;
     int bx = blockIdx.x;
@@ -13,8 +13,8 @@ __global__ void genclosestarray(float* compcompvals, float* sectcompvals, int* c
     while(stride < numcompimages){ stride << 1; }
     __shared__ int location[stride];
 
-    for(int j = 0; j * numblocks < numsections; ++j){
-    int sectimageindex = bx + (j * numblocks);
+    for(int j = 0; j * 4 < numsections; ++j){
+    int sectimageindex = bx + (j * 4);
     if(sectimageindex < numsections){
 
     if(tx < 504){
@@ -40,24 +40,13 @@ __global__ void genclosestarray(float* compcompvals, float* sectcompvals, int* c
     }
     __syncthreads
 
-    if(tx == 0){ closestfit[bx+j*numblocks] = location[0]; }
+    if(tx == 0){ closestfit[bx+j*4] = location[0]; }
 
     } }
 }
 
-extern "C" int* genmatcharray(char* dev_image, float* dev_compcompvals, int numcompimages, int width, int height, int sectwidth, int sectheight)
-{
-    /* determine total number of sections */
-    int numwide = width / sectwidth;
-    int numtall = height / sectheight;
-    if((width % sectwidth) != 0){ ++numwide; }
-    if((height % sectheight != 0){ ++numtall; }
-    int numsections = numwide * numtall;
-
-    /* allocate memory for section comparison value array */
-    //float* host_sectcompvals = malloc(numsections * 12 * sizeof(float));
-    float* dev_sectcompvals;
-    cudaMalloc((void**)&dev_sectcompvals, numsections * 12 * sizeof(float));
+    /* closest match array kernel call */
+    int numsections = 0; //assign a real value
 
     /* image evaluation stuff goes here
      * information stored as four RGB floats left to right, top to bottom
@@ -65,18 +54,10 @@ extern "C" int* genmatcharray(char* dev_image, float* dev_compcompvals, int numc
 
     cudaFree(dev_image);
 
-    int* host_closestfit = (int*)malloc(numsections * sizeof(int));
     int* dev_closestfit;
     cudaMalloc((void**)&dev_closestfit, numsections * sizeof(int));
-
-    genclosestarray<<<4,512>>>(dev_compcompvals, dev_sectcompvals, dev_closestfit, numcompimages, numsections, 4);
+    genclosestarray<<<4,512>>>(dev_compcompvals, dev_sectcompvals, dev_closestfit, numcompimages, numsections);
     cudaDeviceSynchronize();
 
-    cudaMemcpy(host_closestfit, dev_closestfit, numsections * sizeof(int), cudaMemcpyDeviceToHost);
-
     cudaFree(dev_sectcompvals);
-    cudaFree(dev_closestfit);
     cudaFree(dev_compcompvals);
-
-    return host_closestfit;
-}
