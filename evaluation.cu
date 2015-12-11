@@ -2,7 +2,13 @@
 #include <sdtlib.h>
 #include <cuda_runtime.h>
 
-__global__ void histandcompval(unsigned char* compimages, int* compvals, int numcompimages, int size, int height, int width)
+    /* comporfull should be zero when computing for the component image array
+     *   and one when computing for sections of the full image
+     * when comporfull is zero, numimages is the number of input component images
+     * when comporfull is one, numimages is the number of sections in the full image 
+     * numwide is used only for full image computation - holds number of sections
+     *   needed to fill one row of the full image - input zero if comporfull is zero
+__global__ void histandcompval(unsigned char* imagearray, int* compvals, int comporfull, int numimages, int size, int height, int width, int numwide)
 {
     __shared__ unsigned int privhistr[256];
     __shared__ unsigned int privhistg[256];
@@ -14,24 +20,31 @@ __global__ void histandcompval(unsigned char* compimages, int* compvals, int num
 
     quadrant_offset = 0;
     if(bx == 1){ quadrant_offset += width; }
-    if(by == 1){ quadrant_offset += (size << 1); }
+    if(by == 1){ 
+        if(comporfull == 0){ quadrant_offset += (size << 1); }
+        else{ quadrant_offset += (numwide * size << 1); }
+    }
 
-    for(int j = 0; j < numcompimages; j++){
+    for(int j = 0; j < numimages; j++){
     
     privhistr[tx] = 0;
     privhistg[tx] = 0;
     privhistb[tx] = 0;
     __syncthreads();
 
-    int start = (j << 2) * size + quadrant_offset;
+    if(comporfull == 0){ int start = (j << 2) * size + quadrant_offset; }
+    else{
+        int start = ((j << 1) * (size << 2) + (j << 1) % numwide) * size + quadrant_offset;
+    }
     
     for(int i = 0; i * 256 < size; i++){
         quadrant_x = (tx + i * 256) % width;
         quadrant_y = (tx + i * 256) / width;
+        if(comporfull == 1){ width *= (numwide << 1); }
         if(quadrant_y < height){
-            atomicAdd(&(privhistr[compimages[start + (quadrant_x + quadrant_y * width) * 3]]), 1);
-            atomicAdd(&(privhistg[compimages[start + (quadrant_x + quadrant_y * width) * 3 + 1]), 1);
-            atomicAdd(&(privhistb[compimages[start + (quadrant_x + quadrant_y * width) * 3 + 2]), 1);
+            atomicAdd(&(privhistr[imagearray[start + (quadrant_x + quadrant_y * width) * 3]]), 1);
+            atomicAdd(&(privhistg[imagearray[start + (quadrant_x + quadrant_y * width) * 3 + 1]), 1);
+            atomicAdd(&(privhistb[imagearray[start + (quadrant_x + quadrant_y * width) * 3 + 2]), 1);
         }
         __syncthreads();
     }
