@@ -8,6 +8,7 @@
      * when comporfull is one, numimages is the number of sections in the full image 
      * numwide is used only for full image computation - holds number of sections
      *   needed to fill one row of the full image - input zero if comporfull is zero
+     */
 __global__ void histandcompval(unsigned char* imagearray, int* compvals, int comporfull, int numimages, int size, int height, int width, int numwide)
 {
     __shared__ unsigned int privhistr[256];
@@ -73,10 +74,24 @@ __global__ void histandcompval(unsigned char* imagearray, int* compvals, int com
     }
 }
 
-extern "C" int* evaluate(char* comparray, int numcompimages, int width, int height)
-{
-    int halfwidth = width >> 1;
-    int halfheight = height >> 1;
 
-    
-}
+    /* kernel call for component image evaluation */
+    int* dev_compvals;
+    cudaMalloc((void**)&dev_compvals, numsections * sizeof(int));
+    int half_compheight = COMP_HEIGHT >> 1;
+    int half_compwidth = COMP_WIDTH >> 1;
+    int comp_quadrantsize = half_compheight * half_compwidth;
+    histandcompval<<<4,256>>>(dev_compimagearray, dev_compvals, 0, numcompimages, comp_quadrantsize, half_compheight, half_compwidth, 0)
+    //eventually free devcompvals
+
+    /*kernel call for full image evaluation */
+    int fullimageheight = 0; //assign a real value
+    int fullimagewidth = 0; //assign a real value
+    int* dev_sectcompvals;
+    cudaMalloc((void**)&dev_sectcompvals, numsections * sizeof(int));
+    int halfsectionheight = fullimageheight / (FINAL_HEIGHT / COMP_HEIGHT) >> 1;
+    int sectionswide = FINAL_WIDTH / COMP_WIDTH;
+    int halfsectionwidth = fullimagewidth / sectionswide >> 1;
+    int full_quadrantsize = halfsectionheight * halfsectionwidth;
+    histandcompval<<<4,256>>>(dev_fullimage, dev_sectcompvals, 1, numsections, full_quadrantsize, halfsectionheight, halfsectionwidth, sectionswide);
+    //eventually free sectcompvals
