@@ -20,6 +20,30 @@ void cudasafe(int error, char* message, char* file, int line) {
 	}
 }
 
+int* serial_genclosestarray(int* compvals, int* sectvals, int numcompimages, int numsections)
+{
+    int* closestarray = (int*)malloc(numsections * sizeof(int));
+    for(int i = 0; i < numsections; i++){
+        int closestval = 0;
+        int closestlocation = 0;
+        for(int k = 0; k < 4; k++){
+            closestval += (sectvals[i*4 + k] - compvals[k]) * (sectvals[i*4 + k] - compvals[k]);
+        }
+        for(int j = 1; j < numcompimages; j++){
+            int closestcompare = 0;
+            for(int k = 0; k < 4; k++){
+                closestcompare += (sectvals[i*4 + k] - compvals[j*4 + k]) * (sectvals[i*4 + k] - compvals[j*4 + k]);
+            }
+            if(closestcompare < closestval){
+                closestval = closestcompare;
+                closestlocation = j;
+            }
+        }
+        closestarray[i] = closestlocation;
+    }
+    return closestarray;
+}
+
 __global__ void genclosestarray(int* compcompvals, int* sectcompvals, int* closestfit, int numcompimages, int numsections, int stride_in)
 {
 	extern __shared__ int distances[];
@@ -35,20 +59,17 @@ __global__ void genclosestarray(int* compcompvals, int* sectcompvals, int* close
 		if (sectimageindex < numsections){
 
 			
-			if (tx < 504)
+			for (int i = 0; i * 128 < numcompimages; i++)
 			{
-				for (int i = 0; i * 42 < numcompimages; i++)
+				int compimageindex = (tx / 4) + (i * 128);
+				if (compimageindex < numcompimages)
 				{
-					int compimageindex = (tx / 12) + (i * 42);
-					if (compimageindex < numcompimages)
-					{
 
-						int sqrtaddval = compcompvals[(tx % 12) + (12 * compimageindex)] - sectcompvals[(tx % 12) + (12 * sectimageindex)];
-						int addval = sqrtaddval * sqrtaddval;
-						if (addval != 0)
-							a = 1;
-						atomicAdd(&(distances[compimageindex]), addval);
-					}
+					int sqrtaddval = compcompvals[(tx % 4) + (4 * compimageindex)] - sectcompvals[(tx % 4) + (4 * sectimageindex)];
+					int addval = sqrtaddval * sqrtaddval;
+					if (addval != 0)
+						a = 1;
+					atomicAdd(&(distances[compimageindex]), addval);
 				}
 			}
 			__syncthreads();
@@ -93,8 +114,8 @@ int main(int argc, char *args[]) {
 	int numSections = 20;
 	int numCompImages = 20;
 
-	int * sectVals = (int*)malloc(12*numSections*sizeof(int));
-	int * compVals = (int*)malloc(12*numCompImages*sizeof(int));
+	int * sectVals = (int*)malloc(4*numSections*sizeof(int));
+	int * compVals = (int*)malloc(4*numCompImages*sizeof(int));
 	int* closest = (int*)malloc(numSections*sizeof(int));
 
 	int* dev_sectVals;
@@ -103,26 +124,29 @@ int main(int argc, char *args[]) {
 	
 	int a;
 
-	for (int i = 0; i < 12*numCompImages; i++)
+	for (int i = 0; i < 4*numCompImages; i++)
 	{
 		compVals[i] = rand() % 10;
 	}
 
-	for (int i = 0; i < 12*numSections; i++)
+	for (int i = 0; i < 4*numSections; i++)
 	{
 		sectVals[i] = rand() % 10;
 	}
 
-	cudasafe(cudaMalloc((void**)&dev_sectVals, 12*numSections*sizeof(int)), "Cuda malloc", __FILE__, __LINE__);
-	cudasafe(cudaMemcpy(dev_sectVals, sectVals, 12*numSections*sizeof(int), cudaMemcpyHostToDevice), "Cuda memory copy", __FILE__, __LINE__);
+    int* serial_closest = serial_genclosestarray(compVals, sectVals, numCompImages, numSections);
 
-	cudasafe(cudaMalloc((void**)&dev_compVals, 12 * numCompImages*sizeof(int)), "Cuda malloc", __FILE__, __LINE__);
-	cudasafe(cudaMemcpy(dev_compVals, compVals, 12 * numCompImages*sizeof(int), cudaMemcpyHostToDevice), "Cuda memory copy", __FILE__, __LINE__);
+	cudasafe(cudaMalloc((void**)&dev_sectVals, 4*numSections*sizeof(int)), "Cuda malloc", __FILE__, __LINE__);
+	cudasafe(cudaMemcpy(dev_sectVals, sectVals, 4*numSections*sizeof(int), cudaMemcpyHostToDevice), "Cuda memory copy", __FILE__, __LINE__);
+
+	cudasafe(cudaMalloc((void**)&dev_compVals, 4 * numCompImages*sizeof(int)), "Cuda malloc", __FILE__, __LINE__);
+	cudasafe(cudaMemcpy(dev_compVals, compVals, 4 * numCompImages*sizeof(int), cudaMemcpyHostToDevice), "Cuda memory copy", __FILE__, __LINE__);
 
 	cudasafe(cudaMalloc((void**)&dev_closest, numSections*sizeof(int)), "Cuda malloc", __FILE__, __LINE__);
 	
 	int stride;
 	for (stride = 1; stride < numCompImages; stride = stride << 1) { }
+    stride = stride >> 1;
 	printf("stride = %d\n", stride);
 	scanf("%d", &a);
 
@@ -134,7 +158,7 @@ int main(int argc, char *args[]) {
 	
 	for (int i = 0; i < numSections; i++) 
 	{ 
-		printf("Section %d\n\tValue = %d\n\tClosest Index = %d\n\tClosest Value = %d\n\n", i, sectVals[i], closest[i], compVals[closest[i]]);
+		printf("Section %d\n\tValue = %d\n\tClosest Index = %d\n\tClosest Value = %d\n\tSerial Closest Index = %d\n\tSerial Closest Value = %d\n\n", i, sectVals[i], closest[i], compVals[closest[i]], serial_closest[i], compVals[serial_closest[i]]);
 	}
 	scanf("%d", &a);
 }
