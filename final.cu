@@ -153,6 +153,7 @@ __global__ void genclosestarray(int* compcompvals, int* sectcompvals, int* close
 {
 	extern __shared__ int distances[];
 	extern __shared__ int location[];
+    extern __shared__ int voldistances[];
 
 	int tx = threadIdx.x;
 	int bx = blockIdx.x;
@@ -178,12 +179,15 @@ __global__ void genclosestarray(int* compcompvals, int* sectcompvals, int* close
 			__syncthreads();
 
 			//find smallest value in distances and put it in an int array at sectimageindex
-			if (tx < numcompimages){ location[tx+numcompimages] = tx; }
+			if (tx < numcompimages){
+                location[tx+numcompimages] = tx;
+                voldistances[numcompimages << 2 + tx] = distances[tx];
+            }
 
 			for (; stride > 0; stride = stride >> 1){
-				if ((tx + stride) <= numcompimages){
-					if (distances[tx + stride] < distances[tx]){
-						distances[tx] = distances[tx + stride];
+				if ((tx + stride) < numcompimages){
+					if (voldistances[numcompimages << 2 + tx + stride] < voldistances[numcompimages << 2 + tx]){
+						voldistances[numcompimages << 2 + tx] = voldistances[numcompimages << 2 + tx + stride];
 						location[tx + numcompimages] = location[tx + stride + numcompimages];
 						__syncthreads();
 					}
@@ -191,9 +195,9 @@ __global__ void genclosestarray(int* compcompvals, int* sectcompvals, int* close
 			}
 			/*
 			for (; stride > 0; stride = stride >> 1){
-				if ((tx + stride) <= numcompimages){			
-					if (distances[tx + stride] < distances[tx]){
-						distances[tx] = distances[tx + stride];
+				if ((tx + stride) < numcompimages){			
+					if (voldistances[numcompimages << 2 + tx + stride] < voldistances[numcompimages << 2 + tx]){
+						voldistances[numcompimages << 2 + tx] = voldistances[numcompimages << 2 + tx + stride];
 						location[tx + numcompimages] = location[tx + stride + numcompimages] | stride;
 						__syncthreads();
 					}
@@ -490,7 +494,7 @@ int main(int argc, char *args[]) {
 
 		printf("Got to genclosestarray\n");
 		scanf("%d", &a);
-		size_t shared_mem = (numcompimages << 1)*sizeof(int);
+		size_t shared_mem = (numcompimages * 3)*sizeof(int);
 		genclosestarray <<<4, 512, shared_mem>>>(dev_compvals, dev_sectvals, dev_closestfit, numcompimages, numsections, stride);
 		cudaDeviceSynchronize();
 		printf("Got past genclosestarray\n");
