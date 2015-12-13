@@ -246,11 +246,11 @@ __global__ void cudaTransform(Uint8 *resized, Uint8 *input, Uint16 pitchInput, U
 * numwide is used only for full image computation - holds number of sections
 *   needed to fill one row of the full image - input zero if comporfull is zero
 */
-__global__ void histandcompval(unsigned char* imagearray, int* compvals, int comporfull, int numimages, int size, int height, int width, int numwide)
+__global__ void histandcompval(unsigned char* imagearray, float* compvals, int comporfull, int numimages, int size, int height, int width, int numwide)
 {
-	__shared__ unsigned int privhistr[256];
-	__shared__ unsigned int privhistg[256];
-	__shared__ unsigned int privhistb[256];
+	__shared__ unsigned int privhist[64];
+    if(tx < 64){ privhist[tx] = 0; }
+    __syncthreads();
 
 	int tx = threadIdx.x;
 	int bx = blockIdx.x;
@@ -264,16 +264,9 @@ __global__ void histandcompval(unsigned char* imagearray, int* compvals, int com
 	}
 
 	for (int j = 0; j < numimages; j++){
-
-		privhistr[tx] = 0;
-		privhistg[tx] = 0;
-		privhistb[tx] = 0;
-		__syncthreads();
-		int start = 0;
-
-		if (comporfull == 0){ start = (j << 2) * size + quadrant_offset; }
+		if (comporfull == 0){ int start = j * (size << 2) + quadrant_offset; }
 		else{
-			start = ((j << 1) / numwide) * (size << 2) * numwide + ((j << 1) % numwide) * (size << 1) + quadrant_offset;
+			int start = (j / numwide) * (size << 2) * numwide + (j % numwide) * (width << 1) + quadrant_offset;
 		}
 
 		for (int i = 0; i * 256 < size; i++){
@@ -281,34 +274,27 @@ __global__ void histandcompval(unsigned char* imagearray, int* compvals, int com
 			int quadrant_y = (tx + i * 256) / width;
 			if (comporfull == 1){ width *= (numwide << 1); }
 			if (quadrant_y < height){
-				atomicAdd(&(privhistr[imagearray[start + (quadrant_x + quadrant_y * width) * 3]]), 1);
-				atomicAdd(&(privhistg[imagearray[start + (quadrant_x + quadrant_y * width) * 3 + 1]]), 1);
-				atomicAdd(&(privhistb[imagearray[start + (quadrant_x + quadrant_y * width) * 3 + 2]]), 1);
+                float grayval = imagearray[start + (quadrant_x + quadrant_y * width) * 3] * 0.07;
+                grayval += imagearray[start + (quadrant_x + quadrant_y * width) * 3 + 1] * 0.71;
+				grayval += imagearray[start + (quadrant_x + quadrant_y * width) * 3 + 2] * 0.21;
+				atomicAdd(&(privhist[((int)grayval >> 2)];
 			}
-			__syncthreads();
 		}
 
-		privhistr[tx] *= tx;
-		privhistg[tx] *= tx;
-		privhistb[tx] *= tx;
+		privhist[tx] *= tx;
 		__syncthreads();
 
-		for (int stride = 128; stride > 0; stride = stride >> 1){
+		for (int stride = 32; stride > 0; stride = stride >> 1){
 			if (tx < stride){
-				privhistr[tx] += privhistr[tx + stride];
-				privhistg[tx] += privhistg[tx + stride];
-				privhistb[tx] += privhistb[tx + stride];
+				privhist[tx] += privhist[tx + stride];
 			}
 			__syncthreads();
 		}
 
 		if (tx == 0){
-			compvals[3 * (bx + (by << 1) + (j << 2))] = privhistr[0];
-			compvals[1 + 3 * (bx + (by << 1) + (j << 2))] = privhistg[0];
-			compvals[2 + 3 * (bx + (by << 1) + (j << 2))] = privhistb[0];
+			compvals[bx + (by << 1) + (j << 2)] = privhist[0];
 		}
 		__syncthreads();
-
 	}
 }
 
@@ -448,7 +434,7 @@ int main(int argc, char *args[]) {
 
 		/* kernel call for component image evaluation */
 		int* dev_compvals;
-		cudasafe(cudaMalloc((void**)&dev_compvals, 12 * numsections * sizeof(int)), "cudaMalloc", __FILE__, __LINE__);
+		cudasafe(cudaMalloc((void**)&dev_compvals, 4 * numsections * sizeof(int)), "cudaMalloc", __FILE__, __LINE__);
 		int half_compheight = COMP_HEIGHT >> 1;
 		int half_compwidth = COMP_WIDTH >> 1;
 		int comp_quadrantsize = half_compheight * half_compwidth;
@@ -465,7 +451,7 @@ int main(int argc, char *args[]) {
 			/*kernel call for full image evaluation */
 		//int fullimageheight = original->h; //assign a real value
 		int* dev_sectvals;
-		cudasafe(cudaMalloc((void**)&dev_sectvals, 12*numsections * sizeof(int)), "cudaMalloc", __FILE__, __LINE__);
+		cudasafe(cudaMalloc((void**)&dev_sectvals, 4*numsections * sizeof(int)), "cudaMalloc", __FILE__, __LINE__);
 		int halfsectionheight = COMP_HEIGHT >> 1;
 		int sectionswide = FINAL_WIDTH / COMP_WIDTH;
 		int halfsectionwidth = COMP_WIDTH >> 1;
@@ -487,10 +473,10 @@ int main(int argc, char *args[]) {
 		cudasafe(cudaFree(dev_origimage), "cudaMalloc", __FILE__, __LINE__);
 		cudasafe(cudaFree(dev_fullimage), "cudaMalloc", __FILE__, __LINE__);
 
-		int* sectvals = (int*)malloc(12*numsections * sizeof(int));
-		cudaMemcpy(sectvals, dev_sectvals, 12*numsections*sizeof(int), cudaMemcpyDeviceToHost);
-		int* compvals = (int*)malloc(12*numcompimages * sizeof(int));
-		cudaMemcpy(compvals, dev_compvals, 12*numcompimages*sizeof(int), cudaMemcpyDeviceToHost);
+		int* sectvals = (int*)malloc(4*numsections * sizeof(int));
+		cudaMemcpy(sectvals, dev_sectvals, 4*numsections*sizeof(int), cudaMemcpyDeviceToHost);
+		int* compvals = (int*)malloc(4*numcompimages * sizeof(int));
+		cudaMemcpy(compvals, dev_compvals, 4*numcompimages*sizeof(int), cudaMemcpyDeviceToHost);
 
 		int* closestarray = genclosestarray(compvals, sectvals, numcompimages, numsections);
 
