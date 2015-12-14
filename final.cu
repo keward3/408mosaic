@@ -9,8 +9,8 @@
 //FINAL_HEIGHT, FINAL_WIDTH must be evenly divisible by COMP_WIDTH, COMP_HEIGHT
 
 #undef main
-#define COMP_WIDTH 200
-#define COMP_HEIGHT 200
+#define COMP_WIDTH 100
+#define COMP_HEIGHT 100
 #define FINAL_HEIGHT 2000
 #define FINAL_WIDTH 2000
 #define ORIGINAL_IMAGE "original.png"
@@ -43,26 +43,26 @@ Uint8* serialBuildFinalImg(int* closestFit, Uint8* components, int sectionsPerRo
 
 int* genclosestarray(int* compvals, int* sectvals, int numcompimages, int numsections)
 {
-    int* closestarray = (int*)malloc(numsections * sizeof(int));
-    for(int i = 0; i < numsections; i++){
-        int closestval = 0;
-        int closestlocation = 0;
-        for(int k = 0; k < 4; k++){
-            closestval += (sectvals[i*4 + k] - compvals[k]) * (sectvals[i*4 + k] - compvals[k]);
-        }
-        for(int j = 1; j < numcompimages; j++){
-            int closestcompare = 0;
-            for(int k = 0; k < 4; k++){
-                closestcompare += (sectvals[i*4 + k] - compvals[j*4 + k]) * (sectvals[i*4 + k] - compvals[j*4 + k]);
-            }
-            if(closestcompare < closestval){
-                closestval = closestcompare;
-                closestlocation = j;
-            }
-        }
-        closestarray[i] = closestlocation;
-    }
-    return closestarray;
+	int* closestarray = (int*)malloc(numsections * sizeof(int));
+	for (int i = 0; i < numsections; i++){
+		int closestval = 0;
+		int closestlocation = 0;
+		for (int k = 0; k < 4; k++){
+			closestval += (sectvals[i * 4 + k] - compvals[k]) * (sectvals[i * 4 + k] - compvals[k]);
+		}
+		for (int j = 1; j < numcompimages; j++){
+			int closestcompare = 0;
+			for (int k = 0; k < 4; k++){
+				closestcompare += (sectvals[i * 4 + k] - compvals[j * 4 + k]) * (sectvals[i * 4 + k] - compvals[j * 4 + k]);
+			}
+			if (closestcompare < closestval){
+				closestval = closestcompare;
+				closestlocation = j;
+			}
+		}
+		closestarray[i] = closestlocation;
+	}
+	return closestarray;
 }
 
 void cudasafe(int error, char* message, char* file, int line) {
@@ -125,7 +125,7 @@ __global__ void BuildFinalImg(int* closestFit, Uint8* components, Uint8* finalIm
 				int sectionIndex = sectionY*sectionsPerRow + sectionX;
 				int closest = closestFit[sectionIndex];
 
-				Uint8* start = components + closest*pixelsPerSection*3;
+				Uint8* start = components + closest*pixelsPerSection * 3;
 
 				int sectionIndexX = xIndex % COMP_WIDTH;
 				int sectionIndexY = yIndex % COMP_HEIGHT;
@@ -153,7 +153,6 @@ __global__ void genclosestarray(int* compcompvals, int* sectcompvals, int* close
 {
 	extern __shared__ int distances[];
 	extern __shared__ int location[];
-    extern __shared__ int voldistances[];
 
 	int tx = threadIdx.x;
 	int bx = blockIdx.x;
@@ -162,32 +161,30 @@ __global__ void genclosestarray(int* compcompvals, int* sectcompvals, int* close
 		int sectimageindex = bx + (j * 4);
 		if (sectimageindex < numsections){
 
-			if (tx < 504)
-			{
-				for (int i = 0; i * 42 < numcompimages; i++)
-				{
-					int compimageindex = (tx / 12) + (i * 42);
-					if (compimageindex < numcompimages)
-					{
+			if (tx < numcompimages){ distances[tx] = 0; }
 
-						int sqrtaddval = compcompvals[(tx % 12) + (12 * compimageindex)] - sectcompvals[(tx % 12) + (12 * bx * j)];
-						int addval = sqrtaddval * sqrtaddval;
-						atomicAdd(&(distances[compimageindex]), addval);
-					}
+			for (int i = 0; i * 128 < numcompimages; i++)
+			{
+				int compimageindex = (tx / 4) + (i * 128);
+				if (compimageindex < numcompimages)
+				{
+					int sqrtaddval = compcompvals[(tx % 4) + (4 * compimageindex)] - sectcompvals[(tx % 4) + (4 * sectimageindex)];
+					int addval = sqrtaddval * sqrtaddval;
+					if (addval != 0)
+					atomicAdd(&(distances[compimageindex]), addval);
 				}
 			}
 			__syncthreads();
 
 			//find smallest value in distances and put it in an int array at sectimageindex
 			if (tx < numcompimages){
-                location[tx+numcompimages] = tx;
-                voldistances[numcompimages << 2 + tx] = distances[tx];
-            }
+				location[tx + numcompimages] = tx;
+			}
 
 			for (; stride > 0; stride = stride >> 1){
 				if ((tx + stride) < numcompimages){
-					if (voldistances[numcompimages << 2 + tx + stride] < voldistances[numcompimages << 2 + tx]){
-						voldistances[numcompimages << 2 + tx] = voldistances[numcompimages << 2 + tx + stride];
+					if (distances[tx + stride] < distances[tx]){
+						distances[tx] = distances[tx + stride];
 						location[tx + numcompimages] = location[tx + stride + numcompimages];
 						__syncthreads();
 					}
@@ -195,16 +192,16 @@ __global__ void genclosestarray(int* compcompvals, int* sectcompvals, int* close
 			}
 			/*
 			for (; stride > 0; stride = stride >> 1){
-				if ((tx + stride) < numcompimages){			
-					if (voldistances[numcompimages << 2 + tx + stride] < voldistances[numcompimages << 2 + tx]){
-						voldistances[numcompimages << 2 + tx] = voldistances[numcompimages << 2 + tx + stride];
-						location[tx + numcompimages] = location[tx + stride + numcompimages] | stride;
-						__syncthreads();
-					}
-				}
+			if ((tx + stride) < numcompimages){
+			if (voldistances[numcompimages << 2 + tx + stride] < voldistances[numcompimages << 2 + tx]){
+			voldistances[numcompimages << 2 + tx] = voldistances[numcompimages << 2 + tx + stride];
+			location[tx + numcompimages] = location[tx + stride + numcompimages] | stride;
+			__syncthreads();
+			}
+			}
 			} */
 
-			if (tx == 0){ closestfit[bx + j*4] = location[numcompimages]; }
+			if (tx == 0){ closestfit[bx + j * 4] = location[numcompimages]; }
 
 		}
 	}
@@ -235,7 +232,7 @@ __global__ void cudaTransform(Uint8 *resized, Uint8 *input, Uint16 pitchInput, U
 
 	red = (point_1[0])*(1 - xDist)*(1 - yDist) + (point_2[0])*(xDist)*(1 - yDist) + (point_3[0])*(yDist)*(1 - xDist) + (point_4[0])*(xDist * yDist);
 
-	Uint8 *p = resized + pixelsPerSection*componentIndex*bytesPerPixelOutput+ blockIdx.y * COMP_WIDTH * bytesPerPixelOutput + blockIdx.x * bytesPerPixelOutput;
+	Uint8 *p = resized + pixelsPerSection*componentIndex*bytesPerPixelOutput + blockIdx.y * COMP_WIDTH * bytesPerPixelOutput + blockIdx.x * bytesPerPixelOutput;
 	p[0] = (Uint8)red;
 	p[1] = (Uint8)green;
 	p[2] = (Uint8)blue;
@@ -249,15 +246,16 @@ __global__ void cudaTransform(Uint8 *resized, Uint8 *input, Uint16 pitchInput, U
 * numwide is used only for full image computation - holds number of sections
 *   needed to fill one row of the full image - input zero if comporfull is zero
 */
-__global__ void histandcompval(unsigned char* imagearray, float* compvals, int comporfull, int numimages, int size, int height, int width, int numwide)
+__global__ void histandcompval(unsigned char* imagearray, int* compvals, int comporfull, int numimages, int size, int height, int width, int numwide)
 {
 	__shared__ unsigned int privhist[64];
-    if(tx < 64){ privhist[tx] = 0; }
-    __syncthreads();
 
 	int tx = threadIdx.x;
 	int bx = blockIdx.x;
 	int by = blockIdx.y; //4 blocks of 256 threads
+
+	if (tx < 64){ privhist[tx] = 0; }
+	__syncthreads();
 
 	int quadrant_offset = 0;
 	if (bx == 1){ quadrant_offset += width; }
@@ -266,10 +264,12 @@ __global__ void histandcompval(unsigned char* imagearray, float* compvals, int c
 		else{ quadrant_offset += (numwide * size << 1); }
 	}
 
+	int start = 0;
+
 	for (int j = 0; j < numimages; j++){
-		if (comporfull == 0){ int start = j * (size << 2) + quadrant_offset; }
+		if (comporfull == 0){ start = j * (size << 2) + quadrant_offset; }
 		else{
-			int start = (j / numwide) * (size << 2) * numwide + (j % numwide) * (width << 1) + quadrant_offset;
+			start = (j / numwide) * (size << 2) * numwide + (j % numwide) * (width << 1) + quadrant_offset;
 		}
 
 		for (int i = 0; i * 256 < size; i++){
@@ -277,14 +277,14 @@ __global__ void histandcompval(unsigned char* imagearray, float* compvals, int c
 			int quadrant_y = (tx + i * 256) / width;
 			if (comporfull == 1){ width *= (numwide << 1); }
 			if (quadrant_y < height){
-                float grayval = imagearray[start + (quadrant_x + quadrant_y * width) * 3] * 0.07;
-                grayval += imagearray[start + (quadrant_x + quadrant_y * width) * 3 + 1] * 0.71;
+				float grayval = imagearray[start + (quadrant_x + quadrant_y * width) * 3] * 0.07;
+				grayval += imagearray[start + (quadrant_x + quadrant_y * width) * 3 + 1] * 0.72;
 				grayval += imagearray[start + (quadrant_x + quadrant_y * width) * 3 + 2] * 0.21;
-				atomicAdd(&(privhist[((int)grayval >> 2)];
+				atomicAdd(&(privhist[((int)grayval >> 2)]), 1);
 			}
 		}
 
-		privhist[tx] *= tx;
+		if (tx < 64){ privhist[tx] *= tx; }
 		__syncthreads();
 
 		for (int stride = 32; stride > 0; stride = stride >> 1){
@@ -302,7 +302,7 @@ __global__ void histandcompval(unsigned char* imagearray, float* compvals, int c
 }
 
 
-    
+
 
 int main(int argc, char *args[]) {
 
@@ -338,7 +338,7 @@ int main(int argc, char *args[]) {
 		printf("COULD NOT OPEN DIRECTORY");
 		scanf("%d", &a);
 	}
-	
+
 	closedir(dir);
 
 	Uint8 *dev_compimagearray;
@@ -354,15 +354,15 @@ int main(int argc, char *args[]) {
 
 			char * name = picture->d_name;
 
-			if (string(name).compare(".") != 0 && string(name).compare("..")!=0)
+			if (string(name).compare(".") != 0 && string(name).compare("..") != 0)
 			{
 				string loadname = "./Images/" + string(name);
 				SDL_Surface *image = IMG_Load(loadname.c_str());
 				int imageByteLength = image->w * image->h * sizeof(Uint8)*image->format->BytesPerPixel;
 
 				if (!image){
-				printf("IMG_Load: %s\n", IMG_GetError());
-				return 1;
+					printf("IMG_Load: %s\n", IMG_GetError());
+					return 1;
 				}
 
 				dim3 grid(COMP_HEIGHT, COMP_HEIGHT);
@@ -387,7 +387,7 @@ int main(int argc, char *args[]) {
 				cudaEventRecord(start, 0);
 
 				// Do the bilinear transform on CUDA device
-				cudaTransform <<< grid, 1 >>>(dev_compimagearray, pixels_dyn, image->pitch, image->format->BytesPerPixel, 3, compIdx, COMP_WIDTH*COMP_HEIGHT, xRatio, yRatio);
+				cudaTransform << < grid, 1 >> >(dev_compimagearray, pixels_dyn, image->pitch, image->format->BytesPerPixel, 3, compIdx, COMP_WIDTH*COMP_HEIGHT, xRatio, yRatio);
 
 				// Stop the timer
 				cudaEventRecord(stop, 0);
@@ -398,7 +398,7 @@ int main(int argc, char *args[]) {
 
 				cudaEventElapsedTime(&time, start, stop);
 				printf("Time for the kernel: %f ms\n", time);
-				
+
 
 				// Free surfaces
 				SDL_FreeSurface(image);
@@ -422,14 +422,14 @@ int main(int argc, char *args[]) {
 		cudasafe(cudaMalloc((void **)&dev_origimage, imageByteLength), "Original image allocation ", __FILE__, __LINE__);
 		cudasafe(cudaMemcpy(dev_origimage, original->pixels, imageByteLength, cudaMemcpyHostToDevice), "Copy original image to device ", __FILE__, __LINE__);
 
-		cudasafe(cudaMalloc((void **)&dev_fullimage, 3*FINAL_HEIGHT*FINAL_WIDTH*sizeof(Uint8)), "Original image allocation ", __FILE__, __LINE__);
+		cudasafe(cudaMalloc((void **)&dev_fullimage, 3 * FINAL_HEIGHT*FINAL_WIDTH*sizeof(Uint8)), "Original image allocation ", __FILE__, __LINE__);
 
 		float orig_xRatio = ((float)(original->w - 1)) / FINAL_WIDTH;
 		float orig_yRatio = ((float)(original->h - 1)) / FINAL_HEIGHT;
 
 		dim3 gridOrig(FINAL_WIDTH, FINAL_HEIGHT);
 
-		cudaTransform <<< gridOrig, 1 >>>(dev_fullimage, dev_origimage, original->pitch, original->format->BytesPerPixel, 3, 0, FINAL_WIDTH*FINAL_HEIGHT, orig_xRatio, orig_yRatio);
+		cudaTransform << < gridOrig, 1 >> >(dev_fullimage, dev_origimage, original->pitch, original->format->BytesPerPixel, 3, 0, FINAL_WIDTH*FINAL_HEIGHT, orig_xRatio, orig_yRatio);
 
 		int numsections = ((FINAL_WIDTH / COMP_WIDTH) * (FINAL_HEIGHT / COMP_HEIGHT));
 
@@ -445,16 +445,16 @@ int main(int argc, char *args[]) {
 		printf("Got to component hist and compval\n");
 		scanf("%d", &a);
 
-		histandcompval <<<grid, 256 >>>(dev_compimagearray, dev_compvals, 0, numcompimages, comp_quadrantsize, half_compheight, half_compwidth, 0);
-			//eventually free devcompvals
+		histandcompval <<<grid, 256 >> >(dev_compimagearray, dev_compvals, 0, numcompimages, comp_quadrantsize, half_compheight, half_compwidth, 0);
+		//eventually free devcompvals
 
 		printf("Got past componenthist and compval\n");
 		scanf("%d", &a);
 
-			/*kernel call for full image evaluation */
+		/*kernel call for full image evaluation */
 		//int fullimageheight = original->h; //assign a real value
 		int* dev_sectvals;
-		cudasafe(cudaMalloc((void**)&dev_sectvals, 4*numsections * sizeof(int)), "cudaMalloc", __FILE__, __LINE__);
+		cudasafe(cudaMalloc((void**)&dev_sectvals, 4 * numsections * sizeof(int)), "cudaMalloc", __FILE__, __LINE__);
 		int halfsectionheight = COMP_HEIGHT >> 1;
 		int sectionswide = FINAL_WIDTH / COMP_WIDTH;
 		int halfsectionwidth = COMP_WIDTH >> 1;
@@ -463,7 +463,7 @@ int main(int argc, char *args[]) {
 		printf("Got to original hist and compval\n");
 		scanf("%d", &a);
 
-		histandcompval <<<grid, 256 >>>(dev_fullimage, dev_sectvals, 1, numsections, full_quadrantsize, halfsectionheight, halfsectionwidth, sectionswide);
+		histandcompval << <grid, 256 >> >(dev_fullimage, dev_sectvals, 1, numsections, full_quadrantsize, halfsectionheight, halfsectionwidth, sectionswide);
 		printf("Got past original hist and compval\n");
 		scanf("%d", &a);
 		//eventually free sectvals
@@ -476,10 +476,10 @@ int main(int argc, char *args[]) {
 		cudasafe(cudaFree(dev_origimage), "cudaMalloc", __FILE__, __LINE__);
 		cudasafe(cudaFree(dev_fullimage), "cudaMalloc", __FILE__, __LINE__);
 
-		int* sectvals = (int*)malloc(4*numsections * sizeof(int));
-		cudaMemcpy(sectvals, dev_sectvals, 4*numsections*sizeof(int), cudaMemcpyDeviceToHost);
-		int* compvals = (int*)malloc(4*numcompimages * sizeof(int));
-		cudaMemcpy(compvals, dev_compvals, 4*numcompimages*sizeof(int), cudaMemcpyDeviceToHost);
+		int* sectvals = (int*)malloc(4 * numsections * sizeof(int));
+		cudaMemcpy(sectvals, dev_sectvals, 4 * numsections*sizeof(int), cudaMemcpyDeviceToHost);
+		int* compvals = (int*)malloc(4 * numcompimages * sizeof(int));
+		cudaMemcpy(compvals, dev_compvals, 4 * numcompimages*sizeof(int), cudaMemcpyDeviceToHost);
 
 		int* closestarray = genclosestarray(compvals, sectvals, numcompimages, numsections);
 
@@ -495,7 +495,7 @@ int main(int argc, char *args[]) {
 		printf("Got to genclosestarray\n");
 		scanf("%d", &a);
 		size_t shared_mem = (numcompimages * 3)*sizeof(int);
-		genclosestarray <<<4, 512, shared_mem>>>(dev_compvals, dev_sectvals, dev_closestfit, numcompimages, numsections, stride);
+		genclosestarray << <4, 512, shared_mem >> >(dev_compvals, dev_sectvals, dev_closestfit, numcompimages, numsections, stride);
 		cudaDeviceSynchronize();
 		printf("Got past genclosestarray\n");
 		scanf("%d", &a);
@@ -507,7 +507,7 @@ int main(int argc, char *args[]) {
 		//cudasafe(cudaMalloc((void**)&dev_finalImage, FINAL_HEIGHT*FINAL_WIDTH * 4 * sizeof(Uint8)), "cudaMalloc", __FILE__, __LINE__);
 
 		dim3 block(16, 16, 1);
-		
+
 		printf("Got to BuildFinalImg\n");
 		scanf("%d", &a);
 		//BuildFinalImg <<<grid, block >>>(dev_closestfit, dev_compimagearray, dev_finalImage, sectionswide, COMP_WIDTH*COMP_HEIGHT);
@@ -530,7 +530,7 @@ int main(int argc, char *args[]) {
 		// these free calls are for serial buildfinalimg
 
 		SDL_Surface *finalImage = SDL_CreateRGBSurface(SDL_SWSURFACE, FINAL_WIDTH, FINAL_HEIGHT, 32, rmask, gmask, bmask, amask);
-		
+
 		//Uint8* finalPixels = (Uint8*)malloc(FINAL_HEIGHT*FINAL_WIDTH*sizeof(Uint8)*4);
 
 		printf("Got to 411\n");
