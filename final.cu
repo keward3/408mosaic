@@ -217,6 +217,7 @@ __global__ void cudaTransform(Uint8 *resized, Uint8 *input, Uint16 pitchInput, U
 	Uint8 *point_2;
 	Uint8 *point_3;
 	Uint8 *point_4;
+	
 	float xDist, yDist, blue, red, green;
 
 	xDist = (xRatio * blockIdx.x) - x;
@@ -227,16 +228,26 @@ __global__ void cudaTransform(Uint8 *resized, Uint8 *input, Uint16 pitchInput, U
 	point_3 = input + (y + 1) * pitchInput + x * bytesPerPixelInput;
 	point_4 = input + (y + 1) * pitchInput + (x + 1) * bytesPerPixelInput;
 
-	blue = (point_1[2])*(1 - xDist)*(1 - yDist) + (point_2[2])*(xDist)*(1 - yDist) + (point_3[2])*(yDist)*(1 - xDist) + (point_4[2])*(xDist * yDist);
+	blue = (point_1[2]) * (1-xDist) * (1-yDist)
+		 + (point_2[2]) * (xDist) * (1-yDist)
+		 + (point_3[2]) * (yDist) * (1-xDist)
+		 + (point_4[2]) * (xDist * yDist);
 
-	green = ((point_1[1]))*(1 - xDist)*(1 - yDist) + (point_2[1])*(xDist)*(1 - yDist) + (point_3[1])*(yDist)*(1 - xDist) + (point_4[1])*(xDist * yDist);
+	green = ((point_1[1])) * (1-xDist)*(1-yDist) 
+		  + (point_2[1]) * (xDist)*(1-yDist) 
+		  + (point_3[1]) * (yDist)*(1-xDist) 
+		  + (point_4[1]) * (xDist * yDist);
 
-	red = (point_1[0])*(1 - xDist)*(1 - yDist) + (point_2[0])*(xDist)*(1 - yDist) + (point_3[0])*(yDist)*(1 - xDist) + (point_4[0])*(xDist * yDist);
+	red = (point_1[0])*(1-xDist)*(1-yDist)
+		+ (point_2[0])*(xDist)*(1-yDist) 
+		+ (point_3[0])*(yDist)*(1-xDist) 
+		+ (point_4[0])*(xDist * yDist);
 
-	Uint8 *p = resized + pixelsPerSection*componentIndex*bytesPerPixelOutput + blockIdx.y * pixelsPerRow * bytesPerPixelOutput + blockIdx.x * bytesPerPixelOutput;
-	p[0] = (Uint8)red;
-	p[1] = (Uint8)green;
-	p[2] = (Uint8)blue;
+	Uint8 *index = resized + pixelsPerSection*componentIndex*bytesPerPixelOutput + blockIdx.y * pixelsPerRow * bytesPerPixelOutput + blockIdx.x * bytesPerPixelOutput;
+	index[0] = (Uint8)red;
+	index[1] = (Uint8)green;
+	index[2] = (Uint8)blue;
+}
 }
 
 
